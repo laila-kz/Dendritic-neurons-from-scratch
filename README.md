@@ -95,24 +95,33 @@ The `script/` directory (or `script.py` if you use a single file) is intentional
 ## Installation
 
 1. **Clone the repository**
+```
 git clone https://github.com/laila-kz/Dendritic-neurons-from-scratch.git
 cd dendritic-neuron
+```
 
 
-2. **Create and activate a virtual environment** (recommended)
-
+3. **Create and activate a virtual environment** (recommended)
+```
 python -m venv .venv
+```
 
 Windows (PowerShell)
+```
 .venv\Scripts\Activate.ps1
+```
+
 
 macOS / Linux
+```
 source .venv/bin/activate
+```
 
 
 3. **Install dependencies**
-
+```
 pip install -r requirements.txt
+```
 
 
 Recommended contents of `requirements.txt`:
@@ -129,8 +138,9 @@ Recommended contents of `requirements.txt`:
 All commands assume you are in the project root (`dendritic-neuron/`) with the virtual environment activated.
 
 ### 1. Train the dendritic neuron
-
+```
 python -m experiments.train_dendritic
+```
 
 
 This script will:
@@ -144,9 +154,9 @@ results/models/dendritic_params.npz
 
 
 ### 2. Train the point neuron baseline
-
+```
 python -m experiments.train_point
-
+```
 
 This script will:
 
@@ -160,9 +170,9 @@ results/logs/point_neuron_history.json
 ### 3. Evaluate and compare neurons
 
 After training both models:
-
+```
 python -m experiments.evaluate_neurons
-
+```
 
 This will:
 
@@ -183,8 +193,10 @@ The tests import the core code via `src`, so the project root must be visible to
 
 From the project root:
 Windows (PowerShell)
+```
 $env:PYTHONPATH = (Get-Location).Path
 pytest tests
+```
 
 
 This runs:
