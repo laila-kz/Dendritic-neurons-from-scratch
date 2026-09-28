@@ -13,29 +13,33 @@ It is designed to be used by:
 
 - experiments/
 - tests/
+
+Importing from the package root is equivalent to importing from the
+individual modules, e.g.::
+
+    from src import DendriticNeuron, get_loss_function
 """
 
 # ---- Neuron models ----
 
-from src.point_neuron import PointNeuron
+from src.activations import get_activation, get_activation_derivative, get_activation_pair
 from src.dendritic_neuron import DendriticNeuron
-
-# ---- Math components ----
-
-from src.activations import get_activation
-from src.losses import get_loss_function
-
-# ---- Training utilities ----
-
-from src.training import train_model, evaluate_model
-
-# ---- Generic utilities ----
-
+from src.losses import (
+    binary_cross_entropy_derivative,
+    binary_cross_entropy_loss,
+    get_loss_function,
+    mse_derivative,
+    mse_loss,
+)
+from src.point_neuron import PointNeuron
+from src.training import evaluate_model, train_model, train_one_epoch
 from src.utils import (
-    init_weights,
-    init_bias,
-    train_val_split,
     batch_iterator,
+    clip_values,
+    init_bias,
+    init_weights,
+    sigmoid_safe,
+    train_val_split,
 )
 
 __all__ = [
@@ -44,13 +48,22 @@ __all__ = [
     "DendriticNeuron",
     # Activations & losses
     "get_activation",
+    "get_activation_derivative",
+    "get_activation_pair",
     "get_loss_function",
+    "mse_loss",
+    "mse_derivative",
+    "binary_cross_entropy_loss",
+    "binary_cross_entropy_derivative",
     # Training
     "train_model",
+    "train_one_epoch",
     "evaluate_model",
     # Utils
     "init_weights",
     "init_bias",
     "train_val_split",
     "batch_iterator",
+    "clip_values",
+    "sigmoid_safe",
 ]

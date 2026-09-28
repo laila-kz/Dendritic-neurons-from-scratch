@@ -1,4 +1,15 @@
-numpy
-matplotlib
-scikit-learn
-pytest
+# Dependencies for running the experiments, plots and tests.
+#
+# The core library in src/ is pure Python and needs none of these; they are
+# only required by experiments/, notebooks/ and tests/.
+#
+# Ranges are intentionally loose-but-bounded: lower bounds are the oldest
+# releases with the APIs used here, upper bounds exclude untested future
+# major versions. Install with:  pip install -r requirements.txt
+#
+# scikit-learn is intentionally not listed: the experiments implement their
+# own stratified split in experiments/common.py and never import it.
+
+numpy>=1.21,<3.0
+matplotlib>=3.5,<4.0
+pytest>=7.0,<10.0

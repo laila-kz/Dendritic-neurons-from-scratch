@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run tests
+        run: pytest -v
+
+  smoke:
+    """Run the full experiment pipeline end to end on one Python version.
+
+    This is the check that matters most: the tests use tiny in-memory models,
+    so nothing else would catch a broken import path, a config mismatch
+    between the training and evaluation scripts, or a serialization bug.
+    """
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Train dendritic neuron
+        run: python -m experiments.train_dendritic
+
+      - name: Train point neuron
+        run: python -m experiments.train_point
+
+      - name: Evaluate and compare
+        run: python -m experiments.evaluate_neurons
+
+      - name: Verify artifacts were produced
+        run: |
+          test -f results/models/dendritic_params.npz
+          test -f results/models/point_neuron_params.npz
+          test -f results/logs/dendritic_history.json
+          test -f results/logs/point_neuron_history.json
+          test -f results/summaries/comparison.json

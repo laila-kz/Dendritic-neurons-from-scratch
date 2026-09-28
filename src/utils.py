@@ -1,7 +1,4 @@
-#This module holds generic utilities not specific to a particular neuron.
-
-"""
-Generic utility functions used across the project.
+"""Generic utility functions used across the project.
 
 This module contains helpers for:
 
@@ -12,8 +9,20 @@ This module contains helpers for:
 """
 
 import random
-import math
-from typing import List, Tuple, Iterable, Any, Optional
+from typing import Any, Iterable, List, Optional, Tuple
+
+from src.activations import sigmoid
+
+__all__ = [
+    "init_weights",
+    "init_bias",
+    "train_val_split",
+    "batch_iterator",
+    "clip_values",
+    "sigmoid_safe",
+    "sigmoid",
+]
+
 
 # ---------- Parameter initialization ----------
 
@@ -33,21 +42,24 @@ def init_weights(
     scale : float
         Scaling factor for random values.
     seed : int, optional
-        Random seed for reproducibility.
+        Random seed. Uses a private RNG so the global random state is left
+        untouched.
 
     Returns
     -------
     list of float
         Flattened list of initialized weights.
     """
-    if seed is not None:
-        random.seed(seed)
-
     if len(shape) != 1:
         raise ValueError("Only 1D weight initialization is supported")
+    if not isinstance(scale, (int, float)) or isinstance(scale, bool):
+        raise ValueError("scale must be a number")
+    if scale < 0:
+        raise ValueError("scale must be non-negative")
 
+    rng = random.Random(seed)
     size = shape[0]
-    return [random.uniform(-scale, scale) for _ in range(size)]
+    return [rng.uniform(-scale, scale) for _ in range(size)]
 
 
 def init_bias(value: float = 0.0) -> float:
@@ -88,27 +100,33 @@ def train_val_split(
     val_ratio : float
         Fraction of data used for validation.
     seed : int, optional
-        Random seed.
+        Random seed. Uses a private RNG so the global random state is left
+        untouched.
 
     Returns
     -------
     X_train, y_train, X_val, y_val
     """
     if len(X) != len(y):
-        raise ValueError("X and y must have the same length")
-
+        raise ValueError(
+            f"X and y must have the same length, got {len(X)} and {len(y)}"
+        )
     if not 0.0 < val_ratio < 1.0:
-        raise ValueError("val_ratio must be between 0 and 1")
+        raise ValueError(f"val_ratio must be between 0 and 1, got {val_ratio}")
 
-    if seed is not None:
-        random.seed(seed)
+    rng = random.Random(seed)
 
     indices = list(range(len(X)))
-    random.shuffle(indices)
+    rng.shuffle(indices)
 
-    split_idx = int(len(X) * (1.0 - val_ratio))
-    train_idx = indices[:split_idx]
-    val_idx = indices[split_idx:]
+    n = len(X)
+    # Always keep at least one example in each split, otherwise a small
+    # dataset silently produces an empty training or validation set.
+    n_val = int(round(n * val_ratio))
+    n_val = max(1, min(n_val, n - 1)) if n > 1 else 0
+
+    val_idx = indices[:n_val]
+    train_idx = indices[n_val:]
 
     X_train = [X[i] for i in train_idx]
     y_train = [y[i] for i in train_idx]
@@ -142,25 +160,26 @@ def batch_iterator(
     shuffle : bool
         Whether to shuffle data before batching.
     seed : int, optional
-        Random seed.
+        Random seed. Uses a private RNG so the global random state is left
+        untouched.
 
     Yields
     ------
     (X_batch, y_batch)
     """
     if len(X) != len(y):
-        raise ValueError("X and y must have the same length")
+        raise ValueError(
+            f"X and y must have the same length, got {len(X)} and {len(y)}"
+        )
     if batch_size <= 0:
-        raise ValueError("batch_size must be positive")
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
 
     indices = list(range(len(X)))
     if shuffle:
-        if seed is not None:
-            random.seed(seed)
-        random.shuffle(indices)
+        random.Random(seed).shuffle(indices)
 
     for start in range(0, len(X), batch_size):
-        batch_indices = indices[start:start + batch_size]
+        batch_indices = indices[start : start + batch_size]
         yield (
             [X[i] for i in batch_indices],
             [y[i] for i in batch_indices],
@@ -188,12 +207,19 @@ def clip_values(x: float, min_val: float, max_val: float) -> float:
     float
         Clipped value.
     """
+    if min_val > max_val:
+        raise ValueError("min_val must be less than or equal to max_val")
     return max(min_val, min(x, max_val))
 
 
 def sigmoid_safe(x: float, eps: float = 1e-8) -> float:
     """
-    Numerically stable sigmoid function.
+    Numerically stable sigmoid function, clipped away from 0 and 1.
+
+    Delegates to :func:`src.activations.sigmoid`, which splits on the sign of
+    ``x`` so ``math.exp`` never receives a large positive argument. Computing
+    ``1 / (1 + exp(-x))`` directly raises ``OverflowError`` for large negative
+    ``x`` instead of returning a (correct) value very close to 0.
 
     Parameters
     ----------
@@ -205,7 +231,8 @@ def sigmoid_safe(x: float, eps: float = 1e-8) -> float:
     Returns
     -------
     float
-        Sigmoid output clipped to (eps, 1 - eps).
+        Sigmoid output clipped to ``[eps, 1 - eps]``.
     """
-    s = 1.0 / (1.0 + math.exp(-x))
-    return clip_values(s, eps, 1.0 - eps)
+    if eps <= 0 or eps >= 0.5:
+        raise ValueError(f"eps must be in (0, 0.5), got {eps}")
+    return clip_values(sigmoid(x), eps, 1.0 - eps)

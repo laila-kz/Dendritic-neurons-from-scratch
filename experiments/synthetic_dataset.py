@@ -1,89 +1,145 @@
-#provides fct that creates toy inputs for testing purposes
+"""Synthetic dataset used by the dendritic-vs-point experiments.
 
-import numpy as np
-from typing import List, Optional, Tuple
+Generates a toy binary-classification problem with 6 input features grouped
+into three 2D blocks. Each class is built from Gaussian clusters centred on
+different points in that 6D space, so the classes are not linearly separable
+and structure inside the neuron has a chance to matter.
+"""
+
 import random
-import matplotlib.pyplot as plt
+from typing import List, Optional, Tuple
+
+# Number of features per branch in the default grouping.
+FEATURES_PER_BRANCH = 2
 
 
-def get_branch_index_grps(input_dim: int = 6) -> List[List[int]]:
-    # input_dim = 6
-    # #three branches, each with two features
-    # num_branches = 3
-    # num_features_per_branch = 2
-    if input_dim != 6:
-        raise NotImplementedError("Only input_dim=6 is implemented")
-    return [[0, 1], [2, 3], [4, 5]]
+def get_branch_index_groups(input_dim: int = 6) -> List[List[int]]:
+    """Return the default mapping from branch index to input feature indices.
+
+    For the default ``input_dim=6`` this yields three branches of two features
+    each: ``[[0, 1], [2, 3], [4, 5]]``.
+
+    Raises
+    ------
+    ValueError
+        If ``input_dim`` is not a multiple of :data:`FEATURES_PER_BRANCH`.
+    """
+    if input_dim <= 0:
+        raise ValueError("input_dim must be positive")
+    if input_dim % FEATURES_PER_BRANCH != 0:
+        raise ValueError(
+            f"input_dim must be a multiple of {FEATURES_PER_BRANCH}, got {input_dim}"
+        )
+
+    return [
+        list(range(start, start + FEATURES_PER_BRANCH))
+        for start in range(0, input_dim, FEATURES_PER_BRANCH)
+    ]
 
 
-# data generateion function
+# Backwards-compatible alias for the original (misspelled) function name.
+get_branch_index_grps = get_branch_index_groups
+
+
 def make_synthetic_data(
     num_samples: int,
     input_dim: int = 6,
     noise_std: float = 0.4,
     seed: Optional[int] = None,
 ) -> Tuple[List[List[float]], List[int]]:
-    if seed is not None:
-        random.seed(seed)
+    """Generate a branch-structured synthetic binary classification dataset.
 
-    if input_dim != 6:
-        raise NotImplementedError("Only input_dim=6 is implemented")
+    Parameters
+    ----------
+    num_samples : int
+        Total number of samples to generate, split evenly between the classes.
+    input_dim : int
+        Number of input features. Must be even; each consecutive pair of
+        features forms one branch-sized block.
+    noise_std : float
+        Standard deviation of the Gaussian clusters.
+    seed : int, optional
+        Random seed. Uses a private RNG so the global random state is left
+        untouched.
 
-    #samples per class
+    Returns
+    -------
+    (X, y)
+        ``X`` is a list of ``num_samples`` feature vectors, ``y`` the matching
+        integer labels in ``{0, 1}``.
+    """
+    if not isinstance(num_samples, int) or isinstance(num_samples, bool):
+        raise ValueError("num_samples must be an integer")
+    if num_samples < 2:
+        raise ValueError(
+            f"num_samples must be at least 2 to have both classes, got {num_samples}"
+        )
+    if noise_std < 0:
+        raise ValueError(f"noise_std must be non-negative, got {noise_std}")
+
+    branch_groups = get_branch_index_groups(input_dim)
+    num_branches = len(branch_groups)
+
+    rng = random.Random(seed)
+
+    # samples per class
     n_class0 = num_samples // 2
     n_class1 = num_samples - n_class0
 
-    #class centers per branch
+    # Class centres per branch: class 0 and class 1 use mirrored centres so
+    # that no single linear boundary separates them.
     class_centers = {
-        0: [(-2, -2), (2, 2), (0, 0)],
-        1: [(2, 2), (-2, -2), (0, 0)],
+        0: [(-2.0, -2.0), (2.0, 2.0), (0.0, 0.0)],
+        1: [(2.0, 2.0), (-2.0, -2.0), (0.0, 0.0)],
+    }
+    # Only the first three branch blocks have a defined centre pattern; for
+    # wider inputs the remaining blocks are centred on the origin.
+    centers_by_class = {
+        label: (centers * ((num_branches // len(centers)) + 1))[:num_branches]
+        for label, centers in class_centers.items()
     }
 
     X: List[List[float]] = []
     y: List[int] = []
 
-    #helper fct to generate samples for a given class
-    def sample_gaussian_2d(center):
+    def sample_gaussian_2d(center: Tuple[float, float]) -> List[float]:
         return [
-            random.gauss(center[0], noise_std),
-            random.gauss(center[1], noise_std),
+            rng.gauss(center[0], noise_std),
+            rng.gauss(center[1], noise_std),
         ]
 
-    #generate class 0 samples
-    for _ in range(n_class0):
-        x: List[float] = []
-        for branch_center in class_centers[0]:
-            x.extend(sample_gaussian_2d(branch_center))
-        X.append(x)
-        y.append(0)
+    for label, n_samples in ((0, n_class0), (1, n_class1)):
+        centers = centers_by_class[label]
+        for _ in range(n_samples):
+            x: List[float] = []
+            for center in centers:
+                x.extend(sample_gaussian_2d(center))
+            X.append(x)
+            y.append(label)
 
-    #geenerate class 1 samples
-    for _ in range(n_class1):
-        x = []
-        for branch_center in class_centers[1]:
-            x.extend(sample_gaussian_2d(branch_center))
-        X.append(x)
-        y.append(1)
+    # shuffle the dataset
+    indices = list(range(num_samples))
+    rng.shuffle(indices)
 
-    #shuffle the dataset
-    indix = list(range(num_samples))
-    random.shuffle(indix)
-
-    X = [X[i] for i in indix]
-    y = [y[i] for i in indix]
+    X = [X[i] for i in indices]
+    y = [y[i] for i in indices]
 
     return X, y
 
 
-# ---------- Optional visualization ----------
 def plot_2d_projection(
     X: List[List[float]],
     y: List[int],
     dim1: int = 0,
     dim2: int = 1,
+    save_path: Optional[str] = None,
+    show: bool = True,
 ):
     """
     Plot a 2D projection of the dataset for inspection.
+
+    ``matplotlib`` is imported lazily so that importing this module (or running
+    the training scripts) does not require a plotting backend.
 
     Parameters
     ----------
@@ -93,15 +149,28 @@ def plot_2d_projection(
         First dimension to plot.
     dim2 : int
         Second dimension to plot.
+    save_path : str, optional
+        If given, the figure is written to this path.
+    show : bool
+        Whether to call ``plt.show()``. Set to ``False`` in headless contexts.
     """
     try:
         import matplotlib.pyplot as plt
-    except ImportError:
-        raise ImportError("matplotlib is required for plotting")
+    except ImportError as exc:  # pragma: no cover - depends on environment
+        raise ImportError(
+            "matplotlib is required for plotting. Install it with "
+            "`pip install matplotlib`."
+        ) from exc
+
+    input_dim = len(X[0]) if X else 0
+    for dim in (dim1, dim2):
+        if not 0 <= dim < input_dim:
+            raise ValueError(
+                f"dimension {dim} is out of range for data with {input_dim} features"
+            )
 
     xs_0 = [x[dim1] for x, label in zip(X, y) if label == 0]
     ys_0 = [x[dim2] for x, label in zip(X, y) if label == 0]
-
     xs_1 = [x[dim1] for x, label in zip(X, y) if label == 1]
     ys_1 = [x[dim2] for x, label in zip(X, y) if label == 1]
 
@@ -111,4 +180,11 @@ def plot_2d_projection(
     plt.ylabel(f"Feature {dim2}")
     plt.legend()
     plt.title("2D projection of synthetic dataset")
-    plt.show()
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    else:
+        plt.close()

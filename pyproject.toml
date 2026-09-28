@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dendritic-neurons"
+version = "0.1.0"
+description = "Dendritic neuron vs point neuron, implemented from scratch in pure Python."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["neural-network", "dendrite", "machine-learning", "education"]
+classifiers = [
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# The library itself (src/) is dependency-free: it is written in pure Python
+# on purpose, so it can be read, run and tested without installing anything.
+# The requirements below are only needed for the experiments, plots and tests.
+dependencies = []
+
+[project.optional-dependencies]
+# scikit-learn is deliberately absent: the stratified split is implemented in
+# experiments/common.py, so nothing in this project imports it.
+experiments = [
+    "numpy>=1.21",
+    "matplotlib>=3.5",
+]
+dev = [
+    "pytest>=7.0",
+    "numpy>=1.21",
+    "matplotlib>=3.5",
+]
+
+[tool.setuptools]
+# `src` is the library and `experiments` is an importable package (its modules
+# use `python -m experiments.<name>`), so both ship. `script/`, `tests/`,
+# `notebooks/` and `results/` are repository content, not library code.
+packages = ["src", "experiments"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+# Lets `pytest` work from a fresh clone without `pip install -e .` and without
+# manually setting PYTHONPATH.
+pythonpath = ["."]
+addopts = "-q"

@@ -1,64 +1,61 @@
-# Train a PointNeuron on exactly the same dataset and with the same training hyperparameters
-# as the dendritic neuron, so results are comparable
+"""Train a PointNeuron baseline on exactly the same data and hyperparameters.
 
-import os
-import json
+Sharing the configuration in :mod:`experiments.common` guarantees the
+comparison against the dendritic neuron is apples-to-apples: same dataset,
+same split, same optimizer settings.
+
+Run with::
+
+    python -m experiments.train_point
+"""
+
 import numpy as np
 
-from experiments.synthetic_dataset import make_synthetic_data
-from src.point_neuron import PointNeuron
+from experiments.common import (
+    ACTIVATION,
+    BATCH_SIZE,
+    INPUT_DIM,
+    LEARNING_RATE,
+    LOSS_NAME,
+    MODEL_DIR,
+    NUM_EPOCHS,
+    NUM_SAMPLES,
+    POINT_HISTORY_PATH,
+    POINT_PARAMS_PATH,
+    RANDOM_SEED,
+    build_dataset,
+    ensure_dirs,
+    make_rng,
+    save_json,
+    train_val_split,
+)
 from src.losses import get_loss_function
+from src.point_neuron import PointNeuron
 from src.training import train_model
-from src.utils import train_val_split
-
-input_dim = 6
-num_samples = 2000
-val_ratio = 0.2
-learning_rate = 0.01
-batch_size = 32
-num_epochs = 50
-
-activation = "sigmoid"
-loss_fct = "binary_cross_entropy"
-random_seed = 42
-
-model_dir = "results/models"
-log_dir = "results/logs"
 
 
-def main():
+def main() -> None:
     print("=== Training Point Neuron ===")
 
-    X, y = make_synthetic_data(
-        num_samples=num_samples,
-        input_dim=input_dim,
-        seed=random_seed,
-    )
+    X, y = build_dataset()
 
-    X = np.asarray(X)
-    y = np.asarray(y, dtype=int)
+    y_counts = np.bincount(np.asarray(y, dtype=int))
+    print(f"Generated dataset with {len(X)} samples.")
+    print(f"Class balance: {y_counts}")
 
-    print(f"Dataset shape: X={X.shape}, y={y.shape}")
-    print(f"Class balance: {np.bincount(y)}")
+    # Identical split to the dendritic run.
+    X_train, y_train, X_val, y_val = train_val_split(X, y)
+    print(f"Training samples: {len(X_train)}, Validation samples: {len(X_val)}")
 
-    # Training and validation split
-    X_train, y_train, X_val, y_val = train_val_split(
-        X.tolist(), y.tolist(), val_ratio=val_ratio, seed=random_seed
-    )
+    loss_fn, loss_deriv_fn = get_loss_function(LOSS_NAME)
 
-    # Loss function
-    loss_fn, loss_deriv_fn = get_loss_function(loss_fct)
-
-    # Neuron instantiation
     neuron = PointNeuron(
-        input_dim=input_dim,
-        activation=activation,
-        seed=random_seed,
+        input_dim=INPUT_DIM,
+        activation=ACTIVATION,
+        seed=RANDOM_SEED,
     )
+    print(neuron.summary())
 
-    print(f"PointNeuron initialized (input_dim={input_dim}, activation={activation})")
-
-    # Train
     history, trained_neuron = train_model(
         neuron=neuron,
         X_train=X_train,
@@ -67,35 +64,23 @@ def main():
         y_val=y_val,
         loss_fn=loss_fn,
         loss_deriv_fn=loss_deriv_fn,
-        learning_rate=learning_rate,
-        batch_size=batch_size,
-        num_epochs=num_epochs,
+        learning_rate=LEARNING_RATE,
+        batch_size=BATCH_SIZE,
+        num_epochs=NUM_EPOCHS,
+        rng=make_rng(RANDOM_SEED),
     )
 
-    # ----- Final metrics -----
-    final_train_loss = history["train_loss"][-1]
-    final_val_loss = history["val_loss"][-1]
-    final_val_acc = history["val_accuracy"][-1]
-
     print("\n=== Final Point Neuron Metrics ===")
-    print(f"Train loss: {final_train_loss:.6f}")
-    print(f"Val loss: {final_val_loss:.6f}")
-    print(f"Val acc: {final_val_acc:.4f}")
+    print(f"Train loss: {history['train_loss'][-1]:.6f}")
+    print(f"Val loss: {history['val_loss'][-1]:.6f}")
+    print(f"Val acc: {history['val_accuracy'][-1]:.4f}")
 
-    # Save results
-    os.makedirs(model_dir, exist_ok=True)
-    os.makedirs(log_dir, exist_ok=True)
+    ensure_dirs(MODEL_DIR)
+    np.savez(POINT_PARAMS_PATH, **trained_neuron.get_parameters())
+    print(f"\nSaved model params to {POINT_PARAMS_PATH}")
 
-    params_path = os.path.join(model_dir, "point_neuron_params.npz")
-    history_path = os.path.join(log_dir, "point_neuron_history.json")
-
-    np.savez(params_path, **trained_neuron.get_parameters())
-
-    with open(history_path, "w") as f:
-        json.dump(history, f, indent=2)
-
-    print(f"\nSaved model params to {params_path}")
-    print(f"Saved training history to {history_path}")
+    save_json(POINT_HISTORY_PATH, history)
+    print(f"Saved training history to {POINT_HISTORY_PATH}")
 
 
 if __name__ == "__main__":

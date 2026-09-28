@@ -1,119 +1,125 @@
-#orchestrate everything: create data, split it, build the neuron, train it, and report performance.
+"""Train a DendriticNeuron on the branch-structured synthetic dataset.
+
+Creates the data, splits it, builds the neuron, trains it, and reports
+performance. Parameters are written to ``results/models/dendritic_params.npz``
+and the training history to ``results/logs/dendritic_history.json``.
+
+Run with::
+
+    python -m experiments.train_dendritic
+"""
+
+import os
 
 import numpy as np
-from experiments.synthetic_dataset import make_synthetic_data, get_branch_index_grps
+
+from experiments.common import (
+    BATCH_SIZE,
+    BRANCH_ACTIVATION,
+    DENDRITIC_HISTORY_PATH,
+    DENDRITIC_PARAMS_PATH,
+    INPUT_DIM,
+    LEARNING_RATE,
+    LOG_DIR,
+    LOSS_NAME,
+    NUM_EPOCHS,
+    NUM_SAMPLES,
+    RANDOM_SEED,
+    SOMA_ACTIVATION,
+    build_branch_input_map,
+    build_dataset,
+    ensure_dirs,
+    make_rng,
+    save_json,
+    train_val_split,
+)
 from src.dendritic_neuron import DendriticNeuron
-from src.activations import get_activation
 from src.losses import get_loss_function
 from src.training import train_model
-from sklearn.model_selection import train_test_split
-
-input_dim = 6
-num_samples = 2000
-val_ratio = 0.2
-learning_rate = 0.01
-batch_size = 32
-num_epochs = 50
-
-branch_activation = "tanh"
-soma_activation = "sigmoid"
-loss_fct = "binary_cross_entropy"
-random_seed = 42
 
 
-def main():
-    print("===Dendritic Neuron Training Experiment===")
+def save_neuron_parameters(neuron: DendriticNeuron, path: str) -> None:
+    """Persist the trained parameters to a ``.npz`` file.
 
-    X, y = make_synthetic_data(
-        num_samples=num_samples,
-        input_dim=input_dim,
-        noise_std=0.4,
-        seed=random_seed,
-    )
+    ``branch_weights`` is a ragged list-of-lists, which numpy cannot store as a
+    rectangular array. Rather than fall back to an object array (which would
+    force ``allow_pickle=True`` on load, and loading a pickled ``.npz`` can
+    execute arbitrary code), each branch is stored under its own numeric key
+    (``branch_weight_0``, ``branch_weight_1``, ...). ``load_params`` reassembles
+    them into the list-of-lists that ``set_parameters`` expects.
+    """
+    ensure_dirs(os.path.dirname(os.path.abspath(path)))
+    params = neuron.get_parameters()
+    payload = {
+        "num_branches": np.array(len(params["branch_weights"]), dtype=int),
+        "branch_biases": np.array(params["branch_biases"], dtype=float),
+        "soma_weights": np.array(params["soma_weights"], dtype=float),
+        "soma_bias": np.array(params["soma_bias"], dtype=float),
+    }
+    for index, branch in enumerate(params["branch_weights"]):
+        payload[f"branch_weight_{index}"] = np.array(branch, dtype=float)
+    np.savez(path, **payload)
+
+
+def main() -> None:
+    print("=== Dendritic Neuron Training Experiment ===")
+
+    X, y = build_dataset()
 
     print(f"Generated dataset with {len(X)} samples.")
     print(f"Class 0 count: {sum(1 for v in y if v == 0)}")
     print(f"Class 1 count: {sum(1 for v in y if v == 1)}")
 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X,
-        y,
-        test_size=val_ratio,
-        random_state=random_seed,
-        stratify=y,
-    )
-
+    X_train, y_train, X_val, y_val = train_val_split(X, y)
     print(f"Training samples: {len(X_train)}, Validation samples: {len(X_val)}")
 
-    # FIX: Just get the activation functions, don't unpack derivatives
-    # Since get_activation() returns only the function, not a tuple
-    branch_activation_fct = get_activation(branch_activation)
-    soma_activation_fct = get_activation(soma_activation)
-    _ = branch_activation_fct
-    _ = soma_activation_fct
-
-    # Get loss function and derivative
-    loss_fct_impl, loss_deri_impl = get_loss_function(loss_fct)
+    # Loss function and its derivative
+    loss_fn, loss_deriv_fn = get_loss_function(LOSS_NAME)
 
     # Branch structure
-    branch_index_grps = get_branch_index_grps(input_dim=input_dim)
-    branch_input_map = {i: grp for i, grp in enumerate(branch_index_grps)}
-
+    branch_input_map = build_branch_input_map()
     print("Branch structure:")
-    for i, grp in enumerate(branch_index_grps):
-        print(f" Branch {i}: features {grp}")
+    for i, group in branch_input_map.items():
+        print(f" Branch {i}: features {group}")
 
-    # Create neuron with correct parameters
     neuron = DendriticNeuron(
-        input_dim=input_dim,
-        num_branches=len(branch_index_grps),
+        input_dim=INPUT_DIM,
+        num_branches=len(branch_input_map),
         branch_input_map=branch_input_map,
-        branch_activation=branch_activation,
-        soma_activation=soma_activation,
-        seed=random_seed,
+        branch_activation=BRANCH_ACTIVATION,
+        soma_activation=SOMA_ACTIVATION,
+        seed=RANDOM_SEED,
     )
-
+    print(neuron.summary())
     print("Initialized Dendritic Neuron model.")
 
-    # Training
     history, trained_neuron = train_model(
         neuron=neuron,
         X_train=X_train,
         y_train=y_train,
         X_val=X_val,
         y_val=y_val,
-        loss_fn=loss_fct_impl,
-        loss_deriv_fn=loss_deri_impl,
-        learning_rate=learning_rate,
-        batch_size=batch_size,
-        num_epochs=num_epochs,
+        loss_fn=loss_fn,
+        loss_deriv_fn=loss_deriv_fn,
+        learning_rate=LEARNING_RATE,
+        batch_size=BATCH_SIZE,
+        num_epochs=NUM_EPOCHS,
+        rng=make_rng(RANDOM_SEED),
     )
 
-    # Final metrics
-    final_train_loss = history["train_loss"][-1]
-    final_val_loss = history["val_loss"][-1]
-    final_val_acc = history["val_accuracy"][-1]
-
     print("\n=== Final Results ===")
-    print(f"Final train loss: {final_train_loss:.6f}")
-    print(f"Final val loss: {final_val_loss:.6f}")
-    print(f"Final val acc: {final_val_acc:.4f}")
+    print(f"Final train loss: {history['train_loss'][-1]:.6f}")
+    print(f"Final val loss: {history['val_loss'][-1]:.6f}")
+    print(f"Final val acc: {history['val_accuracy'][-1]:.4f}")
 
-        # Save trained dendritic neuron parameters
-    import os
-    import numpy as np
+    save_neuron_parameters(trained_neuron, DENDRITIC_PARAMS_PATH)
+    print(f"\nSaved dendritic params to {DENDRITIC_PARAMS_PATH}")
 
-    model_dir = "results/models"
-    os.makedirs(model_dir, exist_ok=True)
-
-    params_path = os.path.join(model_dir, "dendritic_params.npz")
-    np.savez(params_path, **trained_neuron.get_parameters())
-
-    print(f"\nSaved dendritic params to {params_path}")
-
+    ensure_dirs(LOG_DIR)
+    save_json(DENDRITIC_HISTORY_PATH, history)
+    print(f"Saved training history to {DENDRITIC_HISTORY_PATH}")
 
 
 if __name__ == "__main__":
     main()
-
     print("\nDone.")
